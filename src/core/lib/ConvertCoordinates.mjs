@@ -6,9 +6,22 @@
  * @license Apache-2.0
  */
 
+import OperationError from "../errors/OperationError.mjs";
 import geohash from "ngeohash";
+/*
+Currently unable to update to geodesy v2 as we cannot load .js modules into a .mjs file.
+When we do update, imports will look like this:
+
+import LatLonEllipsoidal from "geodesy/latlon-ellipsoidal.js";
+import Mgrs from "geodesy/mgrs.js";
+import OsGridRef from "geodesy/osgridref.js";
+import Utm from "geodesy/utm.js";
+*/
 import geodesy from "geodesy";
-import OperationError from "../errors/OperationError";
+const LatLonEllipsoidal = geodesy.LatLonEllipsoidal,
+    Mgrs = geodesy.Mgrs,
+    OsGridRef = geodesy.OsGridRef,
+    Utm = geodesy.Utm;
 
 /**
  * Co-ordinate formats
@@ -72,7 +85,7 @@ export function convertCoordinates (input, inFormat, inDelim, outFormat, outDeli
         if (inDelim === null) {
             throw new OperationError("Unable to detect the input delimiter automatically.");
         }
-    } else {
+    } else if (!inDelim.includes("Direction")) {
         // Convert the delimiter argument value to the actual character
         inDelim = realDelim(inDelim);
     }
@@ -89,7 +102,16 @@ export function convertCoordinates (input, inFormat, inDelim, outFormat, outDeli
     outDelim = realDelim(outDelim);
 
     if (!NO_CHANGE.includes(inFormat)) {
-        split = input.split(inDelim);
+        if (inDelim.includes("Direction")) {
+            // Split on directions
+            split = input.split(/[NnEeSsWw]/g);
+            if (split[0] === "") {
+                // Remove first element if direction preceding
+                split = split.slice(1);
+            }
+        } else {
+            split = input.split(inDelim);
+        }
         // Replace any co-ordinate symbols with spaces so we can split on them later
         for (let i = 0; i < split.length; i++) {
             split[i] = split[i].replace(/[°˝´'"]/g, " ");
@@ -107,22 +129,22 @@ export function convertCoordinates (input, inFormat, inDelim, outFormat, outDeli
     switch (inFormat) {
         case "Geohash":
             hash = geohash.decode(input.replace(/[^A-Za-z0-9]/g, ""));
-            latlon = new geodesy.LatLonEllipsoidal(hash.latitude, hash.longitude);
+            latlon = new LatLonEllipsoidal(hash.latitude, hash.longitude);
             break;
         case "Military Grid Reference System":
-            utm = geodesy.Mgrs.parse(input.replace(/[^A-Za-z0-9]/g, "")).toUtm();
+            utm = Mgrs.parse(input.replace(/[^A-Za-z0-9]/g, "")).toUtm();
             latlon = utm.toLatLonE();
             break;
         case "Ordnance Survey National Grid":
-            osng = geodesy.OsGridRef.parse(input.replace(/[^A-Za-z0-9]/g, ""));
-            latlon = geodesy.OsGridRef.osGridToLatLon(osng);
+            osng = OsGridRef.parse(input.replace(/[^A-Za-z0-9]/g, ""));
+            latlon = OsGridRef.osGridToLatLon(osng);
             break;
         case "Universal Transverse Mercator":
             // Geodesy needs a space between the first 2 digits and the next letter
             if (/^[\d]{2}[A-Za-z]/.test(input)) {
                 input = input.slice(0, 2) + " " + input.slice(2);
             }
-            utm = geodesy.Utm.parse(input);
+            utm = Utm.parse(input);
             latlon = utm.toLatLonE();
             break;
         case "Degrees Minutes Seconds":
@@ -134,7 +156,7 @@ export function convertCoordinates (input, inFormat, inDelim, outFormat, outDeli
                 if (splitLat.length >= 3 && splitLong.length >= 3) {
                     lat = convDMSToDD(splitLat[0], splitLat[1], splitLat[2], 10);
                     lon = convDMSToDD(splitLong[0], splitLong[1], splitLong[2], 10);
-                    latlon = new geodesy.LatLonEllipsoidal(lat.degrees, lon.degrees);
+                    latlon = new LatLonEllipsoidal(lat.degrees, lon.degrees);
                 } else {
                     throw new OperationError("Invalid co-ordinate format for Degrees Minutes Seconds");
                 }
@@ -143,7 +165,7 @@ export function convertCoordinates (input, inFormat, inDelim, outFormat, outDeli
                 splitLat = splitInput(split[0]);
                 if (splitLat.length >= 3) {
                     lat = convDMSToDD(splitLat[0], splitLat[1], splitLat[2]);
-                    latlon = new geodesy.LatLonEllipsoidal(lat.degrees, lat.degrees);
+                    latlon = new LatLonEllipsoidal(lat.degrees, lat.degrees);
                 } else {
                     throw new OperationError("Invalid co-ordinate format for Degrees Minutes Seconds");
                 }
@@ -159,7 +181,7 @@ export function convertCoordinates (input, inFormat, inDelim, outFormat, outDeli
                 // Convert to decimal degrees, and then convert to a geodesy object
                 lat = convDDMToDD(splitLat[0], splitLat[1], 10);
                 lon = convDDMToDD(splitLong[0], splitLong[1], 10);
-                latlon = new geodesy.LatLonEllipsoidal(lat.degrees, lon.degrees);
+                latlon = new LatLonEllipsoidal(lat.degrees, lon.degrees);
             } else {
                 // Not a pair, so only try to convert one set of co-ordinates
                 splitLat = splitInput(input);
@@ -167,7 +189,7 @@ export function convertCoordinates (input, inFormat, inDelim, outFormat, outDeli
                     throw new OperationError("Invalid co-ordinate format for Degrees Decimal Minutes.");
                 }
                 lat = convDDMToDD(splitLat[0], splitLat[1], 10);
-                latlon = new geodesy.LatLonEllipsoidal(lat.degrees, lat.degrees);
+                latlon = new LatLonEllipsoidal(lat.degrees, lat.degrees);
             }
             break;
         case "Decimal Degrees":
@@ -177,14 +199,14 @@ export function convertCoordinates (input, inFormat, inDelim, outFormat, outDeli
                 if (splitLat.length !== 1 || splitLong.length !== 1) {
                     throw new OperationError("Invalid co-ordinate format for Decimal Degrees.");
                 }
-                latlon = new geodesy.LatLonEllipsoidal(splitLat[0], splitLong[0]);
+                latlon = new LatLonEllipsoidal(splitLat[0], splitLong[0]);
             } else {
                 // Not a pair, so only try to convert one set of co-ordinates
                 splitLat = splitInput(split[0]);
                 if (splitLat.length !== 1) {
                     throw new OperationError("Invalid co-ordinate format for Decimal Degrees.");
                 }
-                latlon = new geodesy.LatLonEllipsoidal(splitLat[0], splitLat[0]);
+                latlon = new LatLonEllipsoidal(splitLat[0], splitLat[0]);
             }
             break;
         default:
@@ -196,7 +218,7 @@ export function convertCoordinates (input, inFormat, inDelim, outFormat, outDeli
     if (inFormat.includes("Degrees")) {
         // If the input string contains directions, we need to check if they're S or W.
         // If either of the directions are, we should make the decimal value negative
-        const dirs = input.match(/[NnEeSsWw]/g);
+        const dirs = input.toUpperCase().match(/[NESW]/g);
         if (dirs && dirs.length >= 1) {
             // Make positive lat/lon values with S/W directions into negative values
             if (dirs[0] === "S" || dirs[0] === "W" && latlon.lat > 0) {
@@ -251,7 +273,7 @@ export function convertCoordinates (input, inFormat, inDelim, outFormat, outDeli
             convLat = mgrs.toString(precision);
             break;
         case "Ordnance Survey National Grid":
-            osng = geodesy.OsGridRef.latLonToOsGrid(latlon);
+            osng = OsGridRef.latLonToOsGrid(latlon);
             if (osng.toString() === "") {
                 throw new OperationError("Could not convert co-ordinates to OS National Grid. Are the co-ordinates in range?");
             }
@@ -318,13 +340,13 @@ export function convertCoordinates (input, inFormat, inDelim, outFormat, outDeli
  * @param {string} input - The input data to be split
  * @returns {number[]} An array of the different items in the string, stored as floats
  */
-function splitInput (input){
+function splitInput (input) {
     const split = [];
 
     input.split(/\s+/).forEach(item => {
         // Remove any character that isn't a digit, decimal point or negative sign
         item = item.replace(/[^0-9.-]/g, "");
-        if (item.length > 0){
+        if (item.length > 0) {
             // Turn the item into a float
             split.push(parseFloat(item));
         }
@@ -341,7 +363,7 @@ function splitInput (input){
  * @param {number} precision - The precision the result should be rounded to
  * @returns {{string: string, degrees: number}} An object containing the raw converted value (obj.degrees), and a formatted string version (obj.string)
  */
-function convDMSToDD (degrees, minutes, seconds, precision){
+function convDMSToDD (degrees, minutes, seconds, precision) {
     const absDegrees = Math.abs(degrees);
     let conv = absDegrees + (minutes / 60) + (seconds / 3600);
     let outString = round(conv, precision) + "°";
@@ -557,7 +579,7 @@ export function findFormat (input, delim) {
     // Test DMS/DDM/DD formats
     if (testData !== undefined) {
         const split = splitInput(testData);
-        switch (split.length){
+        switch (split.length) {
             case 3:
                 return "Degrees Minutes Seconds";
             case 2:
